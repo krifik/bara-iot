@@ -8,10 +8,10 @@
 // ==========================================
 // Inisialisasi Objek & Dependency Injection
 // ==========================================
+// SR04M-2 Mode UART: D1 -> RX Sensor, D2 -> TX Sensor
 static JsnSr04tSensor sensor(
-    Config::Pins::TRIGGER_PIN,
-    Config::Pins::ECHO_PIN,
-    Config::Tank::MEDIAN_SAMPLE_COUNT
+    Config::Pins::TRIGGER_PIN, // D5 (Sensor RX)
+    Config::Pins::ECHO_PIN     // D6 (Sensor TX)
 );
 
 static WaterLevelService waterService(
@@ -42,7 +42,6 @@ static MqttPublisher mqtt(
 static uint32_t lastTelemetryTime = 0;
 
 void setup() {
-    Serial.begin(Config::Pins::STATUS_LED); // 115200 baud
     Serial.begin(115200);
     delay(500);
 
@@ -52,7 +51,7 @@ void setup() {
     Serial.println("==================================================");
 
     pinMode(Config::Pins::STATUS_LED, OUTPUT);
-    digitalWrite(Config::Pins::STATUS_LED, HIGH); // LED Builtin OFF
+    digitalWrite(Config::Pins::STATUS_LED, HIGH);
 
     // Inisialisasi Service & Hardware
     waterService.begin();
@@ -60,40 +59,44 @@ void setup() {
     mqtt.begin();
 
     Serial.println("[Init] Sistem berhasil diinisialisasi.");
+    Serial.println("[Init] Melakukan pembacaan awal sensor...");
+    
+    // Langsung ukur sekali saat boot tanpa menunggu interval
+    WaterLevelData initialData = waterService.measure();
+    Serial.printf("[Sensor Boot] Dist: %.1f cm\n", initialData.rawDistanceCm);
 }
 
+
 void loop() {
-    // 1. Maintain Network & MQTT connection loops
     network.loop();
     mqtt.loop();
 
-    // 2. Scheduled Telemetry & Measurement
     uint32_t currentMillis = millis();
     if (currentMillis - lastTelemetryTime >= Config::Tank::TELEMETRY_INTERVAL_MS) {
         lastTelemetryTime = currentMillis;
 
-        // Indikasi LED kedip saat mengukur
+        // Indikasi LED kedip
         digitalWrite(Config::Pins::STATUS_LED, LOW);
 
-        // Pengukuran
+        // Pengukuran Level Air
         WaterLevelData data = waterService.measure();
 
         // Print Diagnostic ke Serial Monitor
         if (data.isValid) {
-            Serial.printf("[Sensor] Dist: %.1f cm | Depth: %.1f cm | Level: %.1f%% | State: %s\n",
+            Serial.printf("[Sensor] Dist: %.1f cm | Kedalaman Air: %.1f cm | Kapasitas: %.1f%% | Status: %s\n",
                           data.rawDistanceCm,
                           data.waterDepthCm,
                           data.percentage,
                           waterLevelStateToString(data.state));
         } else {
-            Serial.println("[Sensor] Gagal membaca sensor (Timeout / Out of range)");
+            Serial.printf("[Sensor] Mencari sinyal ultrasonik... (Raw: %.1f cm)\n", data.rawDistanceCm);
         }
 
-        // Publish ke MQTT jika terhubung
+        // Publish ke MQTT
         if (network.isConnected()) {
             bool pubOk = mqtt.publishTelemetry(data, network.getRssi(), network.getIpAddress());
             if (pubOk) {
-                Serial.println("[MQTT] Telemetry berhasil dipublish.");
+                Serial.println("[MQTT] Telemetry berhasil dipublish ke Broker!");
             }
         }
 

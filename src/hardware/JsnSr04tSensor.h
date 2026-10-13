@@ -4,82 +4,68 @@
 #include <Arduino.h>
 
 /**
- * @brief Implementasi Driver JSN-SR04T / HC-SR04 dengan Median Filter
- * Mengeliminasi ripple riak air dan outlier bouncing signal pada tangki
+ * @brief Driver JSN-SR04M-2 Standard Pulse (Tanpa Memaksa D2 OUTPUT)
  */
 class JsnSr04tSensor : public IWaterLevelSensor {
 private:
     uint8_t _triggerPin;
     uint8_t _echoPin;
-    uint8_t _sampleCount;
-    uint32_t _timeoutUs;
-
-    /**
-     * @brief Mengambil 1x single pulse echo time (mikrodetik)
-     */
-    unsigned long measureSinglePulseUs() {
-        digitalWrite(_triggerPin, LOW);
-        delayMicroseconds(2);
-        digitalWrite(_triggerPin, HIGH);
-        delayMicroseconds(15); // JSN-SR04T membutuhkan pulse minimal 10-20us
-        digitalWrite(_triggerPin, LOW);
-
-        return pulseIn(_echoPin, HIGH, _timeoutUs);
-    }
+    float _lastValidDistanceCm;
 
 public:
-    JsnSr04tSensor(uint8_t triggerPin, uint8_t echoPin, uint8_t sampleCount = 5, uint32_t maxDistanceCm = 450)
-        : _triggerPin(triggerPin), _echoPin(echoPin), _sampleCount(sampleCount) {
-        // Konversi jarak maksimum ke timeout (jarak bolak-balik: 29.1 us/cm * 2)
-        _timeoutUs = static_cast<uint32_t>(maxDistanceCm * 58.2f);
+    JsnSr04tSensor(uint8_t triggerPin, uint8_t echoPin)
+        : _triggerPin(triggerPin), 
+          _echoPin(echoPin), 
+          _lastValidDistanceCm(-1.0f)
+    {
     }
 
     void begin() override {
         pinMode(_triggerPin, OUTPUT);
-        pinMode(_echoPin, INPUT);
         digitalWrite(_triggerPin, LOW);
+        pinMode(_echoPin, INPUT);
     }
 
     float readDistanceCm() override {
-        if (_sampleCount <= 1) {
-            unsigned long duration = measureSinglePulseUs();
-            if (duration == 0) return -1.0f;
-            return static_cast<float>(duration) / 58.2f;
+        // Biarkan Echo pin murni sebagai INPUT (jangan di-OUTPUT kan)
+        pinMode(_echoPin, INPUT);
+        
+        // 1. Bersihkan trigger pin
+        pinMode(_triggerPin, OUTPUT);
+        digitalWrite(_triggerPin, LOW);
+        delayMicroseconds(5);
+
+        int echoBefore = digitalRead(_echoPin);
+
+        // 2. Kirim pulsa trigger 20uS
+        digitalWrite(_triggerPin, HIGH);
+        delayMicroseconds(20);
+        digitalWrite(_triggerPin, LOW);
+
+        // 3. Baca pulsa menggunakan pulseIn standar
+        // Jika echoBefore LOW: tunggu HIGH
+        // Jika echoBefore HIGH: tunggu LOW
+        unsigned long duration = 0;
+        if (echoBefore == LOW) {
+            duration = pulseIn(_echoPin, HIGH, 50000);
+        } else {
+            duration = pulseIn(_echoPin, LOW, 50000);
         }
 
-        // Sampling multiple readings untuk median filter
-        float samples[15];
-        uint8_t actualCount = (_sampleCount > 15) ? 15 : _sampleCount;
-        uint8_t validSamples = 0;
+        int echoAfter = digitalRead(_echoPin);
+        Serial.printf("[ECHO] Sblm: %s | Pulsa: %lu us | Ssdh: %s\n",
+                      echoBefore == HIGH ? "HIGH" : "LOW",
+                      duration,
+                      echoAfter == HIGH ? "HIGH" : "LOW");
 
-        for (uint8_t i = 0; i < actualCount; ++i) {
-            unsigned long duration = measureSinglePulseUs();
-            if (duration > 0) {
-                float dist = static_cast<float>(duration) / 58.2f;
-                // JSN-SR04T rentang valid 20cm - 450cm
-                if (dist >= 18.0f && dist <= 450.0f) {
-                    samples[validSamples++] = dist;
-                }
-            }
-            delay(35); // Jeda antar pulse ultrasonic agar tidak terjadi interferensi pantulan
+        if (duration >= 200 && duration <= 35000) {
+            float cm = duration / 57.5f;
+            Serial.printf("[SENSOR SUKSES] Pulsa: %lu us -> %.1f cm\n", duration, cm);
+            _lastValidDistanceCm = cm;
+            return cm;
         }
 
-        if (validSamples == 0) {
-            return -1.0f; // Sensor timeout / out of range
-        }
-
-        // Urutkan (Bubble sort sederhana untuk array kecil)
-        for (uint8_t i = 0; i < validSamples - 1; ++i) {
-            for (uint8_t j = 0; j < validSamples - i - 1; ++j) {
-                if (samples[j] > samples[j + 1]) {
-                    float temp = samples[j];
-                    samples[j] = samples[j + 1];
-                    samples[j + 1] = temp;
-                }
-            }
-        }
-
-        // Ambil nilai tengah (Median)
-        return samples[validSamples / 2];
+        delay(80);
+        return _lastValidDistanceCm;
     }
 };

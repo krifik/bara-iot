@@ -35,9 +35,11 @@ public:
           _lastReconnectAttempt(0) {}
 
     void begin() {
+        _wifiClient.setTimeout(500); // 500ms timeout agar loop tidak terhambat
         _mqttClient.setServer(_brokerHost, _brokerPort);
         _mqttClient.setBufferSize(512);
     }
+
 
     void loop() {
         if (!_mqttClient.connected()) {

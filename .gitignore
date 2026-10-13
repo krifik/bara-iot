@@ -9,3 +9,8 @@
 # Environment & Credentials
 .env
 .env.local
+
+# Node & Temp
+node_modules/
+server/node_modules/
+graphify-out/

@@ -14,6 +14,7 @@ public:
         : _ssid(ssid), _password(password), _reconnectIntervalMs(reconnectIntervalMs), _lastAttemptMs(0) {}
 
     void begin() {
+        WiFi.persistent(false);
         WiFi.mode(WIFI_STA);
         WiFi.setAutoReconnect(true);
         connect();
@@ -30,13 +31,15 @@ public:
     void loop() {
         if (WiFi.status() != WL_CONNECTED) {
             uint32_t now = millis();
-            if (now - _lastAttemptMs >= _reconnectIntervalMs) {
+            if (now - _lastAttemptMs >= 10000) {
                 _lastAttemptMs = now;
-                Serial.println("[WiFi] Koneksi terputus, mencoba reconnect...");
-                WiFi.reconnect();
+                Serial.printf("[WiFi] Status: %d. Menghubungkan ulang ke SSID: %s...\n", WiFi.status(), _ssid);
+                WiFi.begin(_ssid, _password);
             }
         }
     }
+
+
 
     bool isConnected() const {
         return WiFi.status() == WL_CONNECTED;
