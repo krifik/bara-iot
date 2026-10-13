@@ -14,8 +14,8 @@ namespace Config {
     // Pin Configuration (NodeMCU v3 CH340)
     // ==========================================
     namespace Pins {
-        constexpr uint8_t TRIGGER_PIN   = D1; // GPIO5  -> Sensor RX (Kuning / Trigger)
-        constexpr uint8_t ECHO_PIN      = D2; // GPIO4  -> Sensor TX (Biru / Echo)
+        constexpr uint8_t TRIGGER_PIN   = D2; // GPIO4  -> Sensor RX (Kuning / Trigger)
+        constexpr uint8_t ECHO_PIN      = D1; // GPIO5  -> Sensor TX (Biru / Echo)
         constexpr uint8_t STATUS_LED    = LED_BUILTIN; // Active LOW on NodeMCU
     }
 
