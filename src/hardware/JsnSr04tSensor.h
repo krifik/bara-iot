@@ -16,24 +16,31 @@ private:
     float measurePair(uint8_t trigPin, uint8_t echoPin) {
         pinMode(echoPin, INPUT);
         pinMode(trigPin, OUTPUT);
+
+        // Test 1: Standard Active-HIGH Trigger (Idle LOW -> Pulse HIGH 30us -> LOW)
         digitalWrite(trigPin, LOW);
-        delayMicroseconds(5);
-
-        int idleState = digitalRead(echoPin);
-
-        // Kirim pulsa trigger 20uS
+        delayMicroseconds(50);
         digitalWrite(trigPin, HIGH);
-        delayMicroseconds(20);
+        delayMicroseconds(30);
         digitalWrite(trigPin, LOW);
 
-        unsigned long duration = 0;
-        if (idleState == LOW) {
-            duration = pulseIn(echoPin, HIGH, 35000);
-        } else {
-            duration = pulseIn(echoPin, LOW, 35000);
+        unsigned long duration = pulseIn(echoPin, HIGH, 35000);
+        if (duration == 0) duration = pulseIn(echoPin, LOW, 20000);
+
+        if (duration >= 860 && duration <= 30000) {
+            return duration / 57.5f;
         }
 
-        // Jika duration valid (15 cm = 860us s/d 450 cm = 26000us)
+        // Test 2: Inverted Active-LOW Trigger (Idle HIGH -> Pulse LOW 30us -> HIGH)
+        digitalWrite(trigPin, HIGH);
+        delayMicroseconds(50);
+        digitalWrite(trigPin, LOW);
+        delayMicroseconds(30);
+        digitalWrite(trigPin, HIGH);
+
+        duration = pulseIn(echoPin, LOW, 35000);
+        if (duration == 0) duration = pulseIn(echoPin, HIGH, 20000);
+
         if (duration >= 860 && duration <= 30000) {
             return duration / 57.5f;
         }
