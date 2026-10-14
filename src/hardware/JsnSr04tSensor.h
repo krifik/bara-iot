@@ -41,11 +41,11 @@ public:
         delayMicroseconds(20);
         digitalWrite(_triggerPin, LOW);
 
-        // 2. Tunggu transisi edge pertama dari idle state (maksimal 5ms)
+        // 2. Tunggu transisi edge pertama dari idle state (maksimal 45ms)
         unsigned long tWait = micros();
         while (digitalRead(_echoPin) == idle) {
-            if (micros() - tWait > 5000) {
-                Serial.printf("[SENSOR TIMEOUT] Tidak ada respons transisi D1 (Idle: %s)\n", 
+            if (micros() - tWait > 45000) {
+                Serial.printf("[SENSOR TIMEOUT] Tidak ada respons transisi D1 dalam 45ms (Idle: %s)\n", 
                               idle == HIGH ? "HIGH" : "LOW");
                 return -1.0f;
             }
@@ -54,8 +54,8 @@ public:
         // 3. Pin telah berubah state! Mulai hitung durasi
         unsigned long tStart = micros();
         while (digitalRead(_echoPin) != idle) {
-            if (micros() - tStart > 35000) {
-                Serial.printf("[SENSOR TIMEOUT] Pulsa melebihi batas 35ms\n");
+            if (micros() - tStart > 45000) {
+                Serial.printf("[SENSOR TIMEOUT] Pulsa melebihi batas 45ms\n");
                 return -1.0f;
             }
         }
@@ -65,16 +65,17 @@ public:
         if (duration < 860) {
             Serial.printf("[SENSOR SPIKE] Mengabaikan noise %lu us, menunggu pantulan utama...\n", duration);
             
-            // Tunggu pulsa pantulan akustik sesungguhnya
+            // Tunggu pulsa pantulan akustik sesungguhnya (hingga 45ms)
             tWait = micros();
             while (digitalRead(_echoPin) == idle) {
-                if (micros() - tWait > 25000) {
+                if (micros() - tWait > 45000) {
+                    Serial.println("[SENSOR TIMEOUT] Pantulan kedua tidak muncul");
                     return -1.0f;
                 }
             }
             tStart = micros();
             while (digitalRead(_echoPin) != idle) {
-                if (micros() - tStart > 35000) {
+                if (micros() - tStart > 45000) {
                     return -1.0f;
                 }
             }
