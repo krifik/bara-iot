@@ -2,87 +2,98 @@
 
 #include "IWaterLevelSensor.h"
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 
 /**
- * @brief Driver JSN-SR04M-2 / 200427 Mode UART Resmi (Datasheet DFRobot)
- * Mengirim instruksi 0x55 pada 9600 baud dan membaca frame 4-byte (0xFF + H + L + Sum)
+ * @brief Driver JSN-SR04M-2 / 200427 dengan Deterministic Edge Detection
+ * Otomatis menangani Idle-HIGH maupun Idle-LOW, serta memfilter spike crosstalk 4uS
  */
 class JsnSr04tSensor : public IWaterLevelSensor {
 private:
-    uint8_t _triggerPin; // D2 -> Sensor RX (Kuning)
-    uint8_t _echoPin;    // D1 -> Sensor TX (Biru)
-    SoftwareSerial _serial;
+    uint8_t _triggerPin; // D2 -> Sensor RX (Kuning / Trigger)
+    uint8_t _echoPin;    // D1 -> Sensor TX (Biru / Echo)
     float _lastValidDistanceCm;
 
 public:
     JsnSr04tSensor(uint8_t triggerPin, uint8_t echoPin)
         : _triggerPin(triggerPin), 
           _echoPin(echoPin), 
-          _serial(echoPin, triggerPin), // RX = D1, TX = D2
           _lastValidDistanceCm(-1.0f)
     {
     }
 
     void begin() override {
-        _serial.begin(9600);
+        pinMode(_triggerPin, OUTPUT);
+        digitalWrite(_triggerPin, LOW);
+        pinMode(_echoPin, INPUT);
         _lastValidDistanceCm = -1.0f;
     }
 
     float readDistanceCm() override {
-        // 1. Bersihkan buffer serial sebelumnya
-        while (_serial.available() > 0) {
-            _serial.read();
+        pinMode(_echoPin, INPUT);
+        pinMode(_triggerPin, OUTPUT);
+        digitalWrite(_triggerPin, LOW);
+        delayMicroseconds(10);
+
+        int idle = digitalRead(_echoPin); // Deteksi idle state D1 (HIGH atau LOW)
+
+        // 1. Kirim pulsa trigger 20uS
+        digitalWrite(_triggerPin, HIGH);
+        delayMicroseconds(20);
+        digitalWrite(_triggerPin, LOW);
+
+        // 2. Tunggu transisi edge pertama dari idle state (maksimal 5ms)
+        unsigned long tWait = micros();
+        while (digitalRead(_echoPin) == idle) {
+            if (micros() - tWait > 5000) {
+                Serial.printf("[SENSOR TIMEOUT] Tidak ada respons transisi D1 (Idle: %s)\n", 
+                              idle == HIGH ? "HIGH" : "LOW");
+                return -1.0f;
+            }
         }
 
-        // 2. Kirim instruksi trigger UART 0x55 ke Sensor RX (D2)
-        _serial.write(0x55);
+        // 3. Pin telah berubah state! Mulai hitung durasi
+        unsigned long tStart = micros();
+        while (digitalRead(_echoPin) != idle) {
+            if (micros() - tStart > 35000) {
+                Serial.printf("[SENSOR TIMEOUT] Pulsa melebihi batas 35ms\n");
+                return -1.0f;
+            }
+        }
+        unsigned long duration = micros() - tStart;
 
-        // 3. Tunggu data balasan hingga 250ms (waktu pantulan + proses transduser)
-        unsigned long startWait = millis();
-        while (millis() - startWait < 250) {
-            if (_serial.available() >= 4) {
-                // Geser buffer hingga menemukan start byte 0xFF
-                if (_serial.peek() != 0xFF) {
-                    _serial.read();
-                    continue;
-                }
-
-                uint8_t header = _serial.read();
-                uint8_t h = _serial.read();
-                uint8_t l = _serial.read();
-                uint8_t cs = _serial.read();
-                uint8_t expectedCs = (uint8_t)(header + h + l);
-
-                if (cs == expectedCs) {
-                    uint16_t distMm = (h << 8) | l;
-                    float cm = distMm / 10.0f;
-
-                    // Range valid JSN-SR04M-2: 20 cm s/d 600 cm
-                    if (cm >= 15.0f && cm <= 600.0f) {
-                        Serial.println("==================================================");
-                        Serial.printf("[SENSOR SUKSES] Jarak: %.1f cm (Raw: %u mm | CS: 0x%02X)\n", cm, distMm, cs);
-                        Serial.println("==================================================");
-                        _lastValidDistanceCm = cm;
-                        return cm;
-                    }
-                } else {
-                    Serial.printf("[SENSOR UART CS ERROR] Expected 0x%02X, got 0x%02X\n", expectedCs, cs);
+        // 4. Jika pulsa pertama adalah spike crosstalk kapasitif (< 860us / < 15cm)
+        if (duration < 860) {
+            Serial.printf("[SENSOR SPIKE] Mengabaikan noise %lu us, menunggu pantulan utama...\n", duration);
+            
+            // Tunggu pulsa pantulan akustik sesungguhnya
+            tWait = micros();
+            while (digitalRead(_echoPin) == idle) {
+                if (micros() - tWait > 25000) {
+                    return -1.0f;
                 }
             }
-            delay(5);
-        }
-
-        int avail = _serial.available();
-        Serial.printf("[SENSOR TIMEOUT] Buffer UART: %d byte tersedia\n", avail);
-        if (avail > 0) {
-            Serial.print("[SENSOR RAW BYTES]: ");
-            while (_serial.available() > 0) {
-                Serial.printf("0x%02X ", _serial.read());
+            tStart = micros();
+            while (digitalRead(_echoPin) != idle) {
+                if (micros() - tStart > 35000) {
+                    return -1.0f;
+                }
             }
-            Serial.println();
+            duration = micros() - tStart;
         }
 
+        // 5. Validasi durasi pantulan nyata (15 cm = 860us s/d 500 cm = 28750us)
+        if (duration >= 860 && duration <= 32000) {
+            float cm = duration / 57.5f; // Formula resmi datasheet JSN-SR04M-2
+            Serial.println("==================================================");
+            Serial.printf("[SENSOR SUKSES] Pulsa: %lu us -> Jarak: %.1f cm (Idle: %s)\n", 
+                          duration, cm, idle == HIGH ? "HIGH" : "LOW");
+            Serial.println("==================================================");
+            _lastValidDistanceCm = cm;
+            return cm;
+        }
+
+        Serial.printf("[SENSOR TIMEOUT] Pulsa akhir: %lu us | D1: %s\n", 
+                      duration, digitalRead(_echoPin) == HIGH ? "HIGH" : "LOW");
         return -1.0f;
     }
 };
