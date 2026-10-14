@@ -75,11 +75,15 @@ void loop() {
     if (currentMillis - lastTelemetryTime >= Config::Tank::TELEMETRY_INTERVAL_MS) {
         lastTelemetryTime = currentMillis;
 
-        // Indikasi LED kedip
-        digitalWrite(Config::Pins::STATUS_LED, LOW);
+        // Indikasi LED kedip saat menembak sinyal ultrasonik
+        digitalWrite(Config::Pins::STATUS_LED, LOW); // LED ON (Active LOW)
 
         // Pengukuran Level Air
         WaterLevelData data = waterService.measure();
+
+        // Tahan LED selama 100ms agar kedipan terlihat jelas oleh mata manusia
+        delay(100);
+        digitalWrite(Config::Pins::STATUS_LED, HIGH); // LED OFF
 
         // Print Diagnostic ke Serial Monitor
         if (data.isValid) {
@@ -99,7 +103,5 @@ void loop() {
                 Serial.println("[MQTT] Telemetry berhasil dipublish ke Broker!");
             }
         }
-
-        digitalWrite(Config::Pins::STATUS_LED, HIGH);
     }
 }

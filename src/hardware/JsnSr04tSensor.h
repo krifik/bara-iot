@@ -40,9 +40,9 @@ public:
         // Deteksi status idle pin Echo (D1)
         int idleState = digitalRead(_echoPin);
 
-        // 2. Kirim pulsa trigger bersih 30uS (>10uS TTL standar SR04M-2)
+        // 2. Kirim pulsa trigger bersih 50uS (optimal eksitasi transduser SR04M-2)
         digitalWrite(_triggerPin, HIGH);
-        delayMicroseconds(30);
+        delayMicroseconds(50);
         digitalWrite(_triggerPin, LOW);
 
         // 3. Baca pulsa pantulan Echo:
